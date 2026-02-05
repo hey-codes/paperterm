@@ -11,7 +11,7 @@
 
 # Configuration
 DASHBOARD_URL="https://hey-codes.github.io/paperterm/dashboard.png"
-REFRESH_RATE=900           # seconds between dashboard refreshes (15 min)
+REFRESH_RATE=300           # seconds between dashboard refreshes (5 min)
 TOUCH_EXIT_ZONE=150        # pixels from edge for exit touch zone
 DEBUG_MODE=false
 

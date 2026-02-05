@@ -1,6 +1,6 @@
 """
 Main dashboard renderer for Kindle Dashboard.
-Composites weather, artwork, time, and reminders into final PNG.
+Composites time, weather, calendar, and reminders into final PNG using quadrant layout.
 """
 
 import os
@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 try:
-    from PIL import Image, ImageDraw, ImageFont, ImageFilter
+    from PIL import Image, ImageDraw, ImageFont
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
@@ -21,17 +21,24 @@ import yaml
 
 # Import our modules
 from weather import fetch_weather, WEATHER_CODES
-from artwork import select_artwork, optimize_for_eink, create_placeholder_artwork
+from ascii_digits import render_time
+from calendar_render import render_calendar
+from weather_render import render_weather_zone
 
 
 # Display constants
 WIDTH = 1236
 HEIGHT = 1648
+MARGIN = 30
 
-# Layout zones
-HEADER_HEIGHT = 200
-FOOTER_HEIGHT = 350
-ARTWORK_ZONE_HEIGHT = HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT
+# Layout zone heights (as per design doc)
+TIME_ZONE_HEIGHT = 320
+MIDDLE_ZONE_HEIGHT = 1048  # Weather + Calendar
+REMINDERS_ZONE_HEIGHT = 220
+
+# Layout zone widths
+WEATHER_ZONE_WIDTH = 350
+CALENDAR_ZONE_WIDTH = WIDTH - (2 * MARGIN) - WEATHER_ZONE_WIDTH  # 826px
 
 # Colors (grayscale)
 BLACK = 0
@@ -40,65 +47,9 @@ MEDIUM_GRAY = 128
 LIGHT_GRAY = 192
 WHITE = 255
 
-# ASCII weather icons (simple text-based representations)
-ASCII_WEATHER_ICONS = {
-    "Clear sky": r"""
-   \   /
-    .-.
- ― (   ) ―
-    `-'
-   /   \
-""",
-    "Partly cloudy": r"""
-   \  /
- _ /"".-.
-   \_(   ).
-   /(___(__)
-""",
-    "Cloudy": r"""
-     .--.
-  .-(    ).
- (___.__)__)
-""",
-    "Fog": r"""
- _ - _ - _ -
-  _ - _ - _
- _ - _ - _ -
-""",
-    "Rain": r"""
-     .-.
-    (   ).
-   (___(__)
-    ʻ ʻ ʻ ʻ
-   ʻ ʻ ʻ ʻ
-""",
-    "Snow": r"""
-     .-.
-    (   ).
-   (___(__)
-    * * * *
-   * * * *
-""",
-    "Thunderstorm": r"""
-     .-.
-    (   ).
-   (___(__)
-    ⚡ʻ⚡ʻ
-   ʻ ʻ ʻ ʻ
-""",
-}
-
-# Box drawing characters
-BOX_CHARS = {
-    'tl': '┌', 'tr': '┐', 'bl': '└', 'br': '┘',
-    'h': '─', 'v': '│',
-    'lt': '├', 'rt': '┤', 'tt': '┬', 'bt': '┴',
-    'x': '┼'
-}
-
 
 class DashboardRenderer:
-    """Renders the complete dashboard image."""
+    """Renders the complete dashboard image with quadrant layout."""
 
     def __init__(self, config_path: str = "config.yml"):
         """Initialize renderer with configuration."""
@@ -142,10 +93,16 @@ class DashboardRenderer:
                     full_path = os.path.join(path, filename)
                     if os.path.exists(full_path):
                         try:
+                            # Load various sizes
                             fonts[f"{style}_large"] = ImageFont.truetype(full_path, 72)
                             fonts[f"{style}_medium"] = ImageFont.truetype(full_path, 36)
                             fonts[f"{style}_small"] = ImageFont.truetype(full_path, 24)
                             fonts[f"{style}_tiny"] = ImageFont.truetype(full_path, 18)
+                            # Additional sizes for specific uses
+                            fonts[f"{style}_48"] = ImageFont.truetype(full_path, 48)
+                            fonts[f"{style}_28"] = ImageFont.truetype(full_path, 28)
+                            fonts[f"{style}_32"] = ImageFont.truetype(full_path, 32)
+                            fonts[f"{style}_16"] = ImageFont.truetype(full_path, 16)
                             font_found = True
                             break
                         except Exception:
@@ -160,6 +117,10 @@ class DashboardRenderer:
                 fonts[f"{style}_medium"] = default
                 fonts[f"{style}_small"] = default
                 fonts[f"{style}_tiny"] = default
+                fonts[f"{style}_48"] = default
+                fonts[f"{style}_28"] = default
+                fonts[f"{style}_32"] = default
+                fonts[f"{style}_16"] = default
 
         return fonts
 
@@ -170,7 +131,7 @@ class DashboardRenderer:
             return []
 
         filepath = reminders_config.get("file", "reminders.txt")
-        max_items = reminders_config.get("max_items", 5)
+        max_items = reminders_config.get("max_items", 6)
         reminders = []
 
         try:
@@ -180,19 +141,26 @@ class DashboardRenderer:
                     # Skip comments and empty lines
                     if not line or line.startswith('#'):
                         continue
-                    # Skip completed items
-                    if line.startswith('[x]') or line.startswith('[X]'):
-                        continue
-                    # Parse priority
+
+                    # Parse status and priority
+                    status = "pending"
                     priority = "normal"
                     text = line
-                    if line.startswith('[!]'):
+
+                    if line.startswith('[x]') or line.startswith('[X]'):
+                        status = "done"
+                        text = line[3:].strip()
+                    elif line.startswith('[!]'):
                         priority = "high"
                         text = line[3:].strip()
                     elif line.startswith('[ ]'):
                         text = line[3:].strip()
 
-                    reminders.append({"text": text, "priority": priority})
+                    reminders.append({
+                        "text": text,
+                        "priority": priority,
+                        "status": status
+                    })
 
                     if len(reminders) >= max_items:
                         break
@@ -201,175 +169,300 @@ class DashboardRenderer:
 
         return reminders
 
-    def _get_weather_icon(self, description: str) -> str:
-        """Get ASCII weather icon for weather description."""
-        desc_lower = description.lower()
-
-        if 'thunder' in desc_lower or 'storm' in desc_lower:
-            return ASCII_WEATHER_ICONS.get("Thunderstorm", "")
-        elif 'snow' in desc_lower:
-            return ASCII_WEATHER_ICONS.get("Snow", "")
-        elif 'rain' in desc_lower or 'drizzle' in desc_lower or 'shower' in desc_lower:
-            return ASCII_WEATHER_ICONS.get("Rain", "")
-        elif 'fog' in desc_lower or 'mist' in desc_lower:
-            return ASCII_WEATHER_ICONS.get("Fog", "")
-        elif 'cloud' in desc_lower or 'overcast' in desc_lower:
-            if 'partly' in desc_lower or 'few' in desc_lower:
-                return ASCII_WEATHER_ICONS.get("Partly cloudy", "")
-            return ASCII_WEATHER_ICONS.get("Cloudy", "")
-        elif 'clear' in desc_lower or 'sunny' in desc_lower:
-            return ASCII_WEATHER_ICONS.get("Clear sky", "")
-        else:
-            return ASCII_WEATHER_ICONS.get("Partly cloudy", "")
-
-    def _draw_box_border(self, draw: ImageDraw.Draw, x1: int, y1: int, x2: int, y2: int) -> None:
-        """Draw a box using Unicode box-drawing characters."""
-        # For e-ink simplicity, use simple lines instead of Unicode chars
-        # which may not render well with all fonts
-        draw.rectangle([(x1, y1), (x2, y2)], outline=DARK_GRAY, width=2)
-
-    def render_header(self, draw: ImageDraw.Draw, weather: Optional[Dict]) -> None:
-        """Render the header zone with time, date, and weather."""
-        # Current time
+    def _get_current_time(self) -> datetime:
+        """Get current time in configured timezone."""
         time_config = self.config.get("time", {})
         tz_name = time_config.get("timezone", "UTC")
 
         try:
             from zoneinfo import ZoneInfo
-            now = datetime.now(ZoneInfo(tz_name))
+            return datetime.now(ZoneInfo(tz_name))
         except ImportError:
-            now = datetime.now()
+            return datetime.now()
 
-        # Format time
-        if time_config.get("format_24h", False):
-            time_str = now.strftime("%H:%M")
-        else:
-            time_str = now.strftime("%-I:%M %p")
+    def render_time_zone(self, draw: ImageDraw.Draw, image: Image.Image) -> None:
+        """
+        Render the time hero zone (top section).
 
-        # Format date
-        date_format = time_config.get("date_format", "short")
-        if date_format == "long":
-            date_str = now.strftime("%B %-d, %Y")
-        elif date_format == "iso":
-            date_str = now.strftime("%Y-%m-%d")
-        else:
-            date_str = now.strftime("%b %-d")
+        Contains:
+        - ASCII block digits for HH:MM
+        - AM/PM indicator (48px bold)
+        - Date: "Wednesday, Feb 4" (36px)
+        - Refresh indicator: "circled 5min" (24px gray, bottom-right)
+        """
+        now = self._get_current_time()
+        time_config = self.config.get("time", {})
+        use_24h = time_config.get("format_24h", False)
 
-        # Day of week
-        day_str = now.strftime("%A")
+        # Zone coordinates
+        zone_x = MARGIN
+        zone_y = MARGIN
+        zone_width = WIDTH - (2 * MARGIN)
+        zone_height = TIME_ZONE_HEIGHT
 
-        # Draw header box
-        self._draw_box_border(draw, 20, 10, WIDTH - 20, HEADER_HEIGHT - 20)
+        # Render ASCII digits for time
+        # Center the time display vertically and position left-of-center
+        digits_y = zone_y + 60  # Positioned toward top of zone
 
-        # Draw time (large, left side)
-        draw.text((50, 30), time_str, font=self.fonts.get("bold_large"), fill=BLACK)
+        # Render time using ascii_digits module
+        total_width, am_pm = render_time(
+            draw=draw,
+            hour=now.hour,
+            minute=now.minute,
+            x=zone_x + 50,
+            y=digits_y,
+            twelve_hour=not use_24h,
+            fill=BLACK
+        )
 
-        # Draw day of week and date (below time)
-        draw.text((50, 115), f"{day_str}, {date_str}", font=self.fonts.get("regular_medium"), fill=DARK_GRAY)
+        # Draw AM/PM indicator (48px bold, to the right of digits)
+        if am_pm:
+            am_pm_x = zone_x + 50 + total_width + 30
+            am_pm_y = digits_y + 30  # Vertically centered with digits
+            draw.text(
+                (am_pm_x, am_pm_y),
+                am_pm,
+                font=self.fonts.get("bold_48"),
+                fill=BLACK
+            )
 
-        # Draw weather (right side)
-        if weather:
-            current = weather["current"]
-            unit = weather["unit"]
+        # Draw date: "Wednesday, Feb 4" (36px, to right of AM/PM)
+        date_str = now.strftime("%A, %b %-d")
+        date_x = zone_x + 50 + total_width + 150  # Right of AM/PM
+        date_y = digits_y + 35
+        draw.text(
+            (date_x, date_y),
+            date_str,
+            font=self.fonts.get("regular_medium"),
+            fill=DARK_GRAY
+        )
 
-            # Temperature (large)
-            temp_str = f"{current['temperature']}{unit}"
-            temp_bbox = draw.textbbox((0, 0), temp_str, font=self.fonts.get("bold_large"))
-            temp_width = temp_bbox[2] - temp_bbox[0]
-            draw.text((WIDTH - temp_width - 50, 30), temp_str, font=self.fonts.get("bold_large"), fill=BLACK)
+        # Draw refresh indicator (bottom-right of time zone)
+        refresh_rate = self.config.get("refresh_rate", 5)
+        refresh_str = f"\u21bb {refresh_rate}min"
+        refresh_font = self.fonts.get("regular_small")
 
-            # Weather description
-            desc_str = current['description']
-            desc_bbox = draw.textbbox((0, 0), desc_str, font=self.fonts.get("regular_medium"))
-            desc_width = desc_bbox[2] - desc_bbox[0]
-            draw.text((WIDTH - desc_width - 50, 115), desc_str, font=self.fonts.get("regular_medium"), fill=DARK_GRAY)
+        # Calculate position for bottom-right
+        refresh_bbox = draw.textbbox((0, 0), refresh_str, font=refresh_font)
+        refresh_width = refresh_bbox[2] - refresh_bbox[0]
+        refresh_x = zone_x + zone_width - refresh_width - 20
+        refresh_y = zone_y + zone_height - 50
+        draw.text(
+            (refresh_x, refresh_y),
+            refresh_str,
+            font=refresh_font,
+            fill=MEDIUM_GRAY
+        )
 
-            # High/Low
-            if 'high' in weather and 'low' in weather:
-                hl_str = f"H:{weather['high']}° L:{weather['low']}°"
-                hl_bbox = draw.textbbox((0, 0), hl_str, font=self.fonts.get("regular_small"))
-                hl_width = hl_bbox[2] - hl_bbox[0]
-                draw.text((WIDTH - hl_width - 50, 160), hl_str, font=self.fonts.get("regular_small"), fill=MEDIUM_GRAY)
+    def render_weather_zone_wrapper(self, draw: ImageDraw.Draw, weather: Optional[Dict]) -> None:
+        """
+        Render the weather zone (left middle section).
 
-        # Decorative terminal prompt at bottom of header
-        prompt_str = "paperterm@kindle:~$"
-        draw.text((50, HEADER_HEIGHT - 50), prompt_str, font=self.fonts.get("mono_small"), fill=MEDIUM_GRAY)
+        Uses the weather_render module to display:
+        - ASCII weather icon
+        - Temperature
+        - Condition
+        - High/Low
+        """
+        # Zone coordinates
+        zone_x = MARGIN
+        zone_y = MARGIN + TIME_ZONE_HEIGHT
+        zone_width = WEATHER_ZONE_WIDTH
+        zone_height = MIDDLE_ZONE_HEIGHT
 
-    def render_artwork_zone(self, base_image: Image.Image, artwork_path: Optional[str]) -> None:
-        """Render artwork in the middle zone."""
-        artwork_config = self.config.get("artwork", {})
-
-        if not artwork_config.get("enabled", True) or not artwork_path:
+        if not weather:
+            # Draw placeholder if no weather data
+            draw.text(
+                (zone_x + 50, zone_y + zone_height // 2),
+                "Weather\nunavailable",
+                font=self.fonts.get("regular_medium"),
+                fill=MEDIUM_GRAY
+            )
             return
 
-        try:
-            # Optimize artwork for the zone
-            temp_path = "/tmp/dashboard_artwork_optimized.png"
-            zone_height = ARTWORK_ZONE_HEIGHT
-            zone_width = WIDTH - 80  # margins
+        # Prepare fonts dict for weather_render module
+        weather_fonts = {
+            'large': self.fonts.get("bold_large"),
+            'medium': self.fonts.get("regular_medium"),
+            'small': self.fonts.get("regular_small"),
+            'mono': self.fonts.get("mono_16"),
+        }
 
-            if optimize_for_eink(
-                artwork_path,
-                temp_path,
-                width=zone_width,
-                height=zone_height,
-                contrast_boost=1.2,
-                dither=True
-            ):
-                artwork = Image.open(temp_path).convert('L')
+        # Get weather data
+        current = weather["current"]
+        unit = weather["unit"]
+        high = weather.get("high", current["temperature"])
+        low = weather.get("low", current["temperature"])
 
-                # Center in zone
-                x = (WIDTH - artwork.width) // 2
-                y = HEADER_HEIGHT + (zone_height - artwork.height) // 2
+        # Call weather_render module
+        render_weather_zone(
+            draw=draw,
+            x=zone_x,
+            y=zone_y,
+            width=zone_width,
+            height=zone_height,
+            temperature=current["temperature"],
+            unit=unit,
+            condition=current["description"],
+            high=high,
+            low=low,
+            fonts=weather_fonts
+        )
 
-                base_image.paste(artwork, (x, y))
-        except Exception as e:
-            print(f"Warning: Could not render artwork: {e}")
+    def render_calendar_zone(self, draw: ImageDraw.Draw, image: Image.Image) -> None:
+        """
+        Render the calendar zone (right middle section).
 
-    def render_footer(self, draw: ImageDraw.Draw, reminders: List[Dict]) -> None:
-        """Render the footer zone with reminders."""
-        footer_y = HEIGHT - FOOTER_HEIGHT
+        Uses the calendar_render module to display:
+        - Full month grid
+        - Inverted cursor on today
+        """
+        now = self._get_current_time()
 
-        # Draw footer box
-        self._draw_box_border(draw, 20, footer_y + 10, WIDTH - 20, HEIGHT - 20)
+        # Zone coordinates (right of weather zone)
+        zone_x = MARGIN + WEATHER_ZONE_WIDTH
+        zone_y = MARGIN + TIME_ZONE_HEIGHT
+        zone_width = CALENDAR_ZONE_WIDTH
+        zone_height = MIDDLE_ZONE_HEIGHT
 
-        # "Reminders" header with terminal style
-        header_str = "┤ REMINDERS ├"
-        draw.text((50, footer_y + 25), header_str, font=self.fonts.get("mono_medium"), fill=BLACK)
+        # Prepare fonts for calendar
+        font_header = self.fonts.get("mono_28")
+        font_days = self.fonts.get("mono_32")
 
-        # Draw reminder items with checkbox style
-        y_offset = footer_y + 80
-        item_num = 1
+        # Call calendar_render module
+        render_calendar(
+            draw=draw,
+            image=image,
+            x=zone_x,
+            y=zone_y,
+            width=zone_width,
+            height=zone_height,
+            year=now.year,
+            month=now.month,
+            today=now.day,
+            font_header=font_header,
+            font_days=font_days,
+            fill=BLACK,
+            bg=WHITE
+        )
 
-        for reminder in reminders:
-            # Priority indicator with ASCII checkbox
-            if reminder["priority"] == "high":
-                prefix = f"[!] {item_num}."
-                color = BLACK
+    def render_reminders_zone(self, draw: ImageDraw.Draw, reminders: List[Dict]) -> None:
+        """
+        Render the reminders zone (bottom section).
+
+        Two-column layout:
+        - Left column: x=30, width=558
+        - Right column: x=618, width=558
+        - Max 3 items per column
+        - Timestamp bottom-right
+        """
+        now = self._get_current_time()
+
+        # Zone coordinates
+        zone_y = MARGIN + TIME_ZONE_HEIGHT + MIDDLE_ZONE_HEIGHT
+        zone_height = REMINDERS_ZONE_HEIGHT
+
+        # Column specifications
+        left_col_x = MARGIN
+        right_col_x = MARGIN + 588  # ~618 from left edge
+        col_width = 558
+        max_per_column = 3
+
+        # Draw zone separator line at top
+        sep_y = zone_y
+        draw.line(
+            [(MARGIN, sep_y), (WIDTH - MARGIN, sep_y)],
+            fill=LIGHT_GRAY,
+            width=1
+        )
+
+        # Font for reminders
+        reminder_font = self.fonts.get("mono_28")
+        line_height = 50
+
+        # Split reminders into two columns
+        left_reminders = reminders[:max_per_column]
+        right_reminders = reminders[max_per_column:max_per_column * 2]
+
+        # Starting y position for items
+        items_y = zone_y + 30
+
+        # Render left column
+        for i, reminder in enumerate(left_reminders):
+            y_pos = items_y + (i * line_height)
+
+            # Determine checkbox style
+            if reminder["status"] == "done":
+                prefix = "[x]"
+            elif reminder["priority"] == "high":
+                prefix = "[!]"
             else:
-                prefix = f"[ ] {item_num}."
-                color = DARK_GRAY
+                prefix = "[ ]"
 
             text = f"{prefix} {reminder['text']}"
 
             # Truncate if too long
-            max_chars = 55
+            max_chars = 35
             if len(text) > max_chars:
                 text = text[:max_chars - 3] + "..."
 
-            draw.text((50, y_offset), text, font=self.fonts.get("mono_small"), fill=color)
-            y_offset += 45
-            item_num += 1
+            # Choose color based on status/priority
+            if reminder["status"] == "done":
+                color = MEDIUM_GRAY
+            elif reminder["priority"] == "high":
+                color = BLACK
+            else:
+                color = DARK_GRAY
+
+            draw.text((left_col_x, y_pos), text, font=reminder_font, fill=color)
+
+        # Render right column
+        for i, reminder in enumerate(right_reminders):
+            y_pos = items_y + (i * line_height)
+
+            # Determine checkbox style
+            if reminder["status"] == "done":
+                prefix = "[x]"
+            elif reminder["priority"] == "high":
+                prefix = "[!]"
+            else:
+                prefix = "[ ]"
+
+            text = f"{prefix} {reminder['text']}"
+
+            # Truncate if too long
+            max_chars = 35
+            if len(text) > max_chars:
+                text = text[:max_chars - 3] + "..."
+
+            # Choose color based on status/priority
+            if reminder["status"] == "done":
+                color = MEDIUM_GRAY
+            elif reminder["priority"] == "high":
+                color = BLACK
+            else:
+                color = DARK_GRAY
+
+            draw.text((right_col_x, y_pos), text, font=reminder_font, fill=color)
 
         # If no reminders, show placeholder
         if not reminders:
-            draw.text((50, y_offset), "[ ] No reminders set", font=self.fonts.get("mono_small"), fill=MEDIUM_GRAY)
+            placeholder_text = "[ ] No reminders set"
+            draw.text(
+                (left_col_x, items_y),
+                placeholder_text,
+                font=reminder_font,
+                fill=MEDIUM_GRAY
+            )
 
-        # Footer timestamp
-        timestamp_str = f"Last updated: {datetime.now().strftime('%H:%M')}"
-        ts_bbox = draw.textbbox((0, 0), timestamp_str, font=self.fonts.get("mono_tiny"))
+        # Draw timestamp (bottom-right of zone)
+        timestamp_str = now.strftime("%H:%M")
+        timestamp_font = self.fonts.get("mono_tiny")
+        ts_bbox = draw.textbbox((0, 0), timestamp_str, font=timestamp_font)
         ts_width = ts_bbox[2] - ts_bbox[0]
-        draw.text((WIDTH - ts_width - 50, HEIGHT - 50), timestamp_str, font=self.fonts.get("mono_tiny"), fill=LIGHT_GRAY)
+        ts_x = WIDTH - MARGIN - ts_width - 10
+        ts_y = zone_y + zone_height - 40
+        draw.text((ts_x, ts_y), timestamp_str, font=timestamp_font, fill=LIGHT_GRAY)
 
     def render(self, output_path: str = "output/dashboard.png") -> bool:
         """
@@ -399,35 +492,22 @@ class DashboardRenderer:
                 forecast_hours=weather_config.get("forecast_hours", 12)
             )
 
-        # Select artwork
-        artwork_path = None
-        artwork_config = self.config.get("artwork", {})
-        if artwork_config.get("enabled", True):
-            print("  Selecting artwork...")
-            artwork_dir = os.path.join(os.path.dirname(__file__), "..", "artwork")
-            artwork_path = select_artwork(
-                artwork_dir=artwork_dir,
-                categories=artwork_config.get("categories"),
-                state_file="/tmp/kindle_dashboard_artwork_state.txt",
-                rotation_interval=artwork_config.get("rotation_interval", 6)
-            )
-            if artwork_path:
-                print(f"    Selected: {artwork_path.name}")
-
         # Load reminders
         print("  Loading reminders...")
         reminders = self._load_reminders()
 
         # Render zones
-        print("  Rendering header...")
-        self.render_header(draw, weather)
+        print("  Rendering time zone...")
+        self.render_time_zone(draw, image)
 
-        print("  Rendering artwork zone...")
-        if artwork_path:
-            self.render_artwork_zone(image, str(artwork_path))
+        print("  Rendering weather zone...")
+        self.render_weather_zone_wrapper(draw, weather)
 
-        print("  Rendering footer...")
-        self.render_footer(draw, reminders)
+        print("  Rendering calendar zone...")
+        self.render_calendar_zone(draw, image)
+
+        print("  Rendering reminders zone...")
+        self.render_reminders_zone(draw, reminders)
 
         # Ensure output directory exists
         output_dir = os.path.dirname(output_path)

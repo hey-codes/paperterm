@@ -1,11 +1,9 @@
-# Kindle Dashboard Reminders
-# Edit this file to update your to-do list
-# Lines starting with # are comments
-# Lines starting with [x] are completed (won't show)
-# Lines starting with [!] are high priority
+# Daily Reminders
+# [!] = priority, [ ] = pending, [x] = done
 
-[x] Test KOReader on Kindle
-[!] Deploy full-screen dashboard
-[ ] Add ASCII artwork to rotation
-[ ] Test touch-to-exit feature
-[ ] Customize daily reminders
+[!] Morning routine
+[ ] Check email
+[ ] Exercise
+[ ] Review tasks
+[ ] Evening review
+[ ] Read 30 mins
