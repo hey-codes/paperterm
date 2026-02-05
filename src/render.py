@@ -40,6 +40,62 @@ MEDIUM_GRAY = 128
 LIGHT_GRAY = 192
 WHITE = 255
 
+# ASCII weather icons (simple text-based representations)
+ASCII_WEATHER_ICONS = {
+    "Clear sky": r"""
+   \   /
+    .-.
+ ― (   ) ―
+    `-'
+   /   \
+""",
+    "Partly cloudy": r"""
+   \  /
+ _ /"".-.
+   \_(   ).
+   /(___(__)
+""",
+    "Cloudy": r"""
+     .--.
+  .-(    ).
+ (___.__)__)
+""",
+    "Fog": r"""
+ _ - _ - _ -
+  _ - _ - _
+ _ - _ - _ -
+""",
+    "Rain": r"""
+     .-.
+    (   ).
+   (___(__)
+    ʻ ʻ ʻ ʻ
+   ʻ ʻ ʻ ʻ
+""",
+    "Snow": r"""
+     .-.
+    (   ).
+   (___(__)
+    * * * *
+   * * * *
+""",
+    "Thunderstorm": r"""
+     .-.
+    (   ).
+   (___(__)
+    ⚡ʻ⚡ʻ
+   ʻ ʻ ʻ ʻ
+""",
+}
+
+# Box drawing characters
+BOX_CHARS = {
+    'tl': '┌', 'tr': '┐', 'bl': '└', 'br': '┘',
+    'h': '─', 'v': '│',
+    'lt': '├', 'rt': '┤', 'tt': '┬', 'bt': '┴',
+    'x': '┼'
+}
+
 
 class DashboardRenderer:
     """Renders the complete dashboard image."""
@@ -145,6 +201,33 @@ class DashboardRenderer:
 
         return reminders
 
+    def _get_weather_icon(self, description: str) -> str:
+        """Get ASCII weather icon for weather description."""
+        desc_lower = description.lower()
+
+        if 'thunder' in desc_lower or 'storm' in desc_lower:
+            return ASCII_WEATHER_ICONS.get("Thunderstorm", "")
+        elif 'snow' in desc_lower:
+            return ASCII_WEATHER_ICONS.get("Snow", "")
+        elif 'rain' in desc_lower or 'drizzle' in desc_lower or 'shower' in desc_lower:
+            return ASCII_WEATHER_ICONS.get("Rain", "")
+        elif 'fog' in desc_lower or 'mist' in desc_lower:
+            return ASCII_WEATHER_ICONS.get("Fog", "")
+        elif 'cloud' in desc_lower or 'overcast' in desc_lower:
+            if 'partly' in desc_lower or 'few' in desc_lower:
+                return ASCII_WEATHER_ICONS.get("Partly cloudy", "")
+            return ASCII_WEATHER_ICONS.get("Cloudy", "")
+        elif 'clear' in desc_lower or 'sunny' in desc_lower:
+            return ASCII_WEATHER_ICONS.get("Clear sky", "")
+        else:
+            return ASCII_WEATHER_ICONS.get("Partly cloudy", "")
+
+    def _draw_box_border(self, draw: ImageDraw.Draw, x1: int, y1: int, x2: int, y2: int) -> None:
+        """Draw a box using Unicode box-drawing characters."""
+        # For e-ink simplicity, use simple lines instead of Unicode chars
+        # which may not render well with all fonts
+        draw.rectangle([(x1, y1), (x2, y2)], outline=DARK_GRAY, width=2)
+
     def render_header(self, draw: ImageDraw.Draw, weather: Optional[Dict]) -> None:
         """Render the header zone with time, date, and weather."""
         # Current time
@@ -172,11 +255,17 @@ class DashboardRenderer:
         else:
             date_str = now.strftime("%b %-d")
 
-        # Draw time (large, left side)
-        draw.text((40, 30), time_str, font=self.fonts.get("bold_large"), fill=BLACK)
+        # Day of week
+        day_str = now.strftime("%A")
 
-        # Draw date (below time)
-        draw.text((40, 110), date_str, font=self.fonts.get("regular_medium"), fill=DARK_GRAY)
+        # Draw header box
+        self._draw_box_border(draw, 20, 10, WIDTH - 20, HEADER_HEIGHT - 20)
+
+        # Draw time (large, left side)
+        draw.text((50, 30), time_str, font=self.fonts.get("bold_large"), fill=BLACK)
+
+        # Draw day of week and date (below time)
+        draw.text((50, 115), f"{day_str}, {date_str}", font=self.fonts.get("regular_medium"), fill=DARK_GRAY)
 
         # Draw weather (right side)
         if weather:
@@ -187,23 +276,24 @@ class DashboardRenderer:
             temp_str = f"{current['temperature']}{unit}"
             temp_bbox = draw.textbbox((0, 0), temp_str, font=self.fonts.get("bold_large"))
             temp_width = temp_bbox[2] - temp_bbox[0]
-            draw.text((WIDTH - temp_width - 40, 30), temp_str, font=self.fonts.get("bold_large"), fill=BLACK)
+            draw.text((WIDTH - temp_width - 50, 30), temp_str, font=self.fonts.get("bold_large"), fill=BLACK)
 
             # Weather description
             desc_str = current['description']
             desc_bbox = draw.textbbox((0, 0), desc_str, font=self.fonts.get("regular_medium"))
             desc_width = desc_bbox[2] - desc_bbox[0]
-            draw.text((WIDTH - desc_width - 40, 110), desc_str, font=self.fonts.get("regular_medium"), fill=DARK_GRAY)
+            draw.text((WIDTH - desc_width - 50, 115), desc_str, font=self.fonts.get("regular_medium"), fill=DARK_GRAY)
 
             # High/Low
             if 'high' in weather and 'low' in weather:
                 hl_str = f"H:{weather['high']}° L:{weather['low']}°"
                 hl_bbox = draw.textbbox((0, 0), hl_str, font=self.fonts.get("regular_small"))
                 hl_width = hl_bbox[2] - hl_bbox[0]
-                draw.text((WIDTH - hl_width - 40, 160), hl_str, font=self.fonts.get("regular_small"), fill=MEDIUM_GRAY)
+                draw.text((WIDTH - hl_width - 50, 160), hl_str, font=self.fonts.get("regular_small"), fill=MEDIUM_GRAY)
 
-        # Draw separator line
-        draw.line([(40, HEADER_HEIGHT - 10), (WIDTH - 40, HEADER_HEIGHT - 10)], fill=LIGHT_GRAY, width=2)
+        # Decorative terminal prompt at bottom of header
+        prompt_str = "paperterm@kindle:~$"
+        draw.text((50, HEADER_HEIGHT - 50), prompt_str, font=self.fonts.get("mono_small"), fill=MEDIUM_GRAY)
 
     def render_artwork_zone(self, base_image: Image.Image, artwork_path: Optional[str]) -> None:
         """Render artwork in the middle zone."""
@@ -240,32 +330,46 @@ class DashboardRenderer:
         """Render the footer zone with reminders."""
         footer_y = HEIGHT - FOOTER_HEIGHT
 
-        # Draw separator line
-        draw.line([(40, footer_y + 10), (WIDTH - 40, footer_y + 10)], fill=LIGHT_GRAY, width=2)
+        # Draw footer box
+        self._draw_box_border(draw, 20, footer_y + 10, WIDTH - 20, HEIGHT - 20)
 
-        # "Reminders" header
-        draw.text((40, footer_y + 30), "Reminders", font=self.fonts.get("bold_medium"), fill=BLACK)
+        # "Reminders" header with terminal style
+        header_str = "┤ REMINDERS ├"
+        draw.text((50, footer_y + 25), header_str, font=self.fonts.get("mono_medium"), fill=BLACK)
 
-        # Draw reminder items
+        # Draw reminder items with checkbox style
         y_offset = footer_y + 80
+        item_num = 1
+
         for reminder in reminders:
-            # Priority indicator
+            # Priority indicator with ASCII checkbox
             if reminder["priority"] == "high":
-                prefix = "● "
+                prefix = f"[!] {item_num}."
                 color = BLACK
             else:
-                prefix = "○ "
+                prefix = f"[ ] {item_num}."
                 color = DARK_GRAY
 
-            text = prefix + reminder["text"]
+            text = f"{prefix} {reminder['text']}"
 
             # Truncate if too long
-            max_chars = 50
+            max_chars = 55
             if len(text) > max_chars:
                 text = text[:max_chars - 3] + "..."
 
-            draw.text((60, y_offset), text, font=self.fonts.get("regular_small"), fill=color)
-            y_offset += 40
+            draw.text((50, y_offset), text, font=self.fonts.get("mono_small"), fill=color)
+            y_offset += 45
+            item_num += 1
+
+        # If no reminders, show placeholder
+        if not reminders:
+            draw.text((50, y_offset), "[ ] No reminders set", font=self.fonts.get("mono_small"), fill=MEDIUM_GRAY)
+
+        # Footer timestamp
+        timestamp_str = f"Last updated: {datetime.now().strftime('%H:%M')}"
+        ts_bbox = draw.textbbox((0, 0), timestamp_str, font=self.fonts.get("mono_tiny"))
+        ts_width = ts_bbox[2] - ts_bbox[0]
+        draw.text((WIDTH - ts_width - 50, HEIGHT - 50), timestamp_str, font=self.fonts.get("mono_tiny"), fill=LIGHT_GRAY)
 
     def render(self, output_path: str = "output/dashboard.png") -> bool:
         """

@@ -1,0 +1,13 @@
+{
+    "name": "paperterm",
+    "items": [
+        {
+            "name": "Start Dashboard",
+            "action": "./TRMNL.sh"
+        },
+        {
+            "name": "Stop Dashboard",
+            "action": "killall TRMNL.sh; /etc/init.d/framework start"
+        }
+    ]
+}

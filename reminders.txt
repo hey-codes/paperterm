@@ -4,8 +4,8 @@
 # Lines starting with [x] are completed (won't show)
 # Lines starting with [!] are high priority
 
-[!] Test KOReader on Kindle
-[ ] Customize dashboard layout
-[ ] Add more artwork to rotation
-[ ] Set up Google Tasks sync
-[ ] Explore SSH access to Kindle
+[x] Test KOReader on Kindle
+[!] Deploy full-screen dashboard
+[ ] Add ASCII artwork to rotation
+[ ] Test touch-to-exit feature
+[ ] Customize daily reminders
