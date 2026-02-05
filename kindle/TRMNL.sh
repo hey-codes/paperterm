@@ -2,18 +2,11 @@
 #
 # paperterm Dashboard Launcher
 # Displays a terminal-style dashboard on Kindle e-ink display
-#
-# Features:
-# - Full-screen takeover (stops framework)
-# - Touch-to-exit (bottom-right corner)
-# - Prevents sleep during display
-# - Clean exit restores normal operation
 
 # Configuration
 DASHBOARD_URL="https://hey-codes.github.io/paperterm/dashboard.png"
 REFRESH_RATE=300           # seconds between dashboard refreshes (5 min)
-TOUCH_EXIT_ZONE=150        # pixels from edge for exit touch zone
-DEBUG_MODE=false
+DEBUG_MODE=true            # Enable logging for debugging
 
 # Paths
 TMP_DIR="/tmp/paperterm"
@@ -21,16 +14,13 @@ DASHBOARD_IMG="$TMP_DIR/dashboard.png"
 STATE_FILE="$TMP_DIR/state"
 LOG_FILE="$TMP_DIR/paperterm.log"
 
-# Display dimensions (Kindle PW 11th gen)
-DISPLAY_WIDTH=1236
-DISPLAY_HEIGHT=1648
-
 # -----------------------------------------------------------------------------
 # Logging
 # -----------------------------------------------------------------------------
 log() {
+    echo "[$(date '+%H:%M:%S')] $1" >> "$LOG_FILE"
     if [ "$DEBUG_MODE" = "true" ]; then
-        echo "[$(date '+%H:%M:%S')] $1" >> "$LOG_FILE"
+        echo "$1"
     fi
 }
 
@@ -42,11 +32,6 @@ cleanup() {
 
     # Re-enable sleep
     lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
-
-    # Stop touch monitoring
-    if [ -n "$TOUCH_PID" ] && kill -0 "$TOUCH_PID" 2>/dev/null; then
-        kill "$TOUCH_PID" 2>/dev/null
-    fi
 
     # Restart framework
     log "Restarting framework..."
@@ -66,12 +51,19 @@ trap cleanup EXIT INT TERM
 # -----------------------------------------------------------------------------
 stop_framework() {
     log "Stopping framework..."
+
+    # Stop the framework
     /etc/init.d/framework stop
 
-    # Wait for framework to fully stop
-    sleep 2
+    # Kill any remaining UI processes
+    killall -9 cvm 2>/dev/null
+    killall -9 lipc-daemon 2>/dev/null
 
-    # Clear the screen
+    # Wait for processes to die
+    sleep 3
+
+    # Clear the screen completely
+    eips -c
     eips -c
 
     log "Framework stopped"
@@ -83,6 +75,8 @@ stop_framework() {
 prevent_sleep() {
     log "Preventing sleep..."
     lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
+    # Also try to disable screensaver
+    lipc-set-prop com.lab126.powerd -i deferScreenSaver 300 2>/dev/null
 }
 
 # -----------------------------------------------------------------------------
@@ -91,14 +85,18 @@ prevent_sleep() {
 display_dashboard() {
     log "Displaying dashboard..."
 
-    # Use fbink if available (better quality), fallback to eips
-    if command -v fbink >/dev/null 2>&1; then
-        fbink -c -g file="$DASHBOARD_IMG" -f
-    else
-        # eips requires grayscale PNG
-        eips -c
-        eips -g "$DASHBOARD_IMG"
+    if [ ! -f "$DASHBOARD_IMG" ]; then
+        log "ERROR: Dashboard image not found at $DASHBOARD_IMG"
+        return 1
     fi
+
+    # Check file size
+    filesize=$(stat -c%s "$DASHBOARD_IMG" 2>/dev/null || stat -f%z "$DASHBOARD_IMG" 2>/dev/null)
+    log "Dashboard file size: $filesize bytes"
+
+    # Display the image directly without clearing first (prevents flash)
+    # -g = grayscale image
+    eips -g "$DASHBOARD_IMG"
 
     log "Dashboard displayed"
 }
@@ -113,8 +111,8 @@ fetch_dashboard() {
     mkdir -p "$TMP_DIR"
 
     # Download with retry
-    local attempts=0
-    local max_attempts=3
+    attempts=0
+    max_attempts=3
 
     while [ $attempts -lt $max_attempts ]; do
         if curl -s -o "$DASHBOARD_IMG" --connect-timeout 10 --max-time 30 "$DASHBOARD_URL"; then
@@ -131,97 +129,25 @@ fetch_dashboard() {
 }
 
 # -----------------------------------------------------------------------------
-# Monitor touch input for exit gesture
-# Touch in bottom-right corner exits the dashboard
+# Show error on screen
 # -----------------------------------------------------------------------------
-monitor_touch() {
-    log "Starting touch monitor..."
-
-    # Find touch input device
-    TOUCH_DEV=""
-    for dev in /dev/input/event*; do
-        if [ -e "$dev" ]; then
-            TOUCH_DEV="$dev"
-            break
-        fi
-    done
-
-    if [ -z "$TOUCH_DEV" ]; then
-        log "No touch device found"
-        return
-    fi
-
-    log "Touch device: $TOUCH_DEV"
-
-    # Monitor touch events in background
-    # Uses evtest or hexdump to read raw touch events
-    (
-        while true; do
-            # Read touch coordinates
-            # This is a simplified approach - real implementation may need evtest
-            if command -v evtest >/dev/null 2>&1; then
-                evtest "$TOUCH_DEV" 2>/dev/null | while read -r line; do
-                    # Parse ABS_MT_POSITION_X and ABS_MT_POSITION_Y
-                    case "$line" in
-                        *ABS_MT_POSITION_X*)
-                            touch_x=$(echo "$line" | grep -o 'value [0-9]*' | cut -d' ' -f2)
-                            ;;
-                        *ABS_MT_POSITION_Y*)
-                            touch_y=$(echo "$line" | grep -o 'value [0-9]*' | cut -d' ' -f2)
-
-                            # Check if touch is in exit zone (bottom-right corner)
-                            if [ -n "$touch_x" ] && [ -n "$touch_y" ]; then
-                                exit_x=$((DISPLAY_WIDTH - TOUCH_EXIT_ZONE))
-                                exit_y=$((DISPLAY_HEIGHT - TOUCH_EXIT_ZONE))
-
-                                if [ "$touch_x" -gt "$exit_x" ] && [ "$touch_y" -gt "$exit_y" ]; then
-                                    log "Exit touch detected at $touch_x,$touch_y"
-                                    echo "EXIT" > "$STATE_FILE"
-                                fi
-                            fi
-                            ;;
-                    esac
-                done
-            else
-                # Fallback: just check for any touch as exit
-                # In production, you'd want proper touch coordinate parsing
-                hexdump -e '16/1 "%02x" "\n"' "$TOUCH_DEV" 2>/dev/null | while read -r line; do
-                    # Any touch event triggers check
-                    if [ -n "$line" ]; then
-                        # For simplicity, treat any touch as potential exit
-                        # A full implementation would parse coordinates
-                        :
-                    fi
-                done
-            fi
-            sleep 1
-        done
-    ) &
-    TOUCH_PID=$!
-
-    log "Touch monitor started (PID: $TOUCH_PID)"
+show_error() {
+    eips -c
+    eips 5 10 "paperterm: $1"
+    eips 5 12 "Check $LOG_FILE for details"
+    eips 5 14 "Press power button to exit"
 }
 
 # -----------------------------------------------------------------------------
-# Show exit zone indicator
-# -----------------------------------------------------------------------------
-show_exit_indicator() {
-    # Draw a small visual indicator in the bottom-right corner
-    # Using fbink text placement
-    if command -v fbink >/dev/null 2>&1; then
-        fbink -x -4 -y -2 -m "[EXIT]" 2>/dev/null
-    fi
-}
-
-# -----------------------------------------------------------------------------
-# Main loop
+# Main
 # -----------------------------------------------------------------------------
 main() {
-    log "paperterm starting..."
-
     # Initialize
     mkdir -p "$TMP_DIR"
-    echo "RUNNING" > "$STATE_FILE"
+    echo "" > "$LOG_FILE"
+    log "========================================="
+    log "paperterm starting..."
+    log "========================================="
 
     # Stop framework for full-screen control
     stop_framework
@@ -229,31 +155,20 @@ main() {
     # Prevent sleep
     prevent_sleep
 
-    # Start touch monitoring
-    monitor_touch
-
     # Initial fetch and display
     if fetch_dashboard; then
         display_dashboard
-        show_exit_indicator
     else
-        # Show error message on screen
-        eips -c
-        eips 10 10 "paperterm: Failed to load dashboard"
-        eips 10 12 "Check network connection"
-        eips 10 14 "Touch bottom-right to exit"
+        show_error "Failed to load dashboard"
+        sleep 10
+        exit 1
     fi
 
     # Main refresh loop
+    log "Entering main loop (refresh every $REFRESH_RATE seconds)"
     last_refresh=$(date +%s)
 
     while true; do
-        # Check for exit signal
-        if [ -f "$STATE_FILE" ] && grep -q "EXIT" "$STATE_FILE" 2>/dev/null; then
-            log "Exit signal received"
-            break
-        fi
-
         # Check if it's time to refresh
         current_time=$(date +%s)
         elapsed=$((current_time - last_refresh))
@@ -262,16 +177,13 @@ main() {
             log "Refresh interval reached ($elapsed seconds)"
             if fetch_dashboard; then
                 display_dashboard
-                show_exit_indicator
             fi
             last_refresh=$current_time
         fi
 
         # Small sleep to prevent CPU spin
-        sleep 5
+        sleep 10
     done
-
-    log "Main loop ended"
 }
 
 # Run main

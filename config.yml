@@ -14,6 +14,7 @@ weather:
   # Find yours at: https://www.latlong.net/
   latitude: 41.8781
   longitude: -87.6298
+  city: "Chicago"
   # Temperature unit: "fahrenheit" or "celsius"
   unit: "fahrenheit"
   # Show forecast for next N hours

@@ -85,23 +85,34 @@ def render_calendar(
         fill: Text/border color (default 0 = black)
         bg: Background color (default 255 = white)
     """
-    # Box-drawing characters
-    TOP_LEFT = "┌"
-    TOP_RIGHT = "┐"
-    BOTTOM_LEFT = "└"
-    BOTTOM_RIGHT = "┘"
-    HORIZONTAL = "─"
-    VERTICAL = "│"
-    T_DOWN = "┬"
-    T_UP = "┴"
-    T_RIGHT = "├"
-    T_LEFT = "┤"
+    # Box-drawing characters (double-line for outer border, single for inner)
+    # Double-line characters for outer border
+    D_TOP_LEFT = "\u2554"     # ╔
+    D_TOP_RIGHT = "\u2557"    # ╗
+    D_BOTTOM_LEFT = "\u255a"  # ╚
+    D_BOTTOM_RIGHT = "\u255d" # ╝
+    D_HORIZONTAL = "\u2550"   # ═
+    D_VERTICAL = "\u2551"     # ║
+    D_T_RIGHT = "\u2560"      # ╠
+    D_T_LEFT = "\u2563"       # ╣
+
+    # Single-line characters (for internal separators if needed)
+    TOP_LEFT = "\u250c"
+    TOP_RIGHT = "\u2510"
+    BOTTOM_LEFT = "\u2514"
+    BOTTOM_RIGHT = "\u2518"
+    HORIZONTAL = "\u2500"
+    VERTICAL = "\u2502"
+    T_DOWN = "\u252c"
+    T_UP = "\u2534"
+    T_RIGHT = "\u251c"
+    T_LEFT = "\u2524"
 
     # Layout constants
     col_width = width // 7  # ~118px per column
     header_height = 50  # Height for month/year header
     dow_height = 40  # Height for day-of-week row
-    border_thickness = 2
+    border_thickness = 3  # Thicker border for visibility
     cursor_padding = 8
 
     # Calculate row height for day grid (6 rows of days)
@@ -116,26 +127,48 @@ def render_calendar(
     month_name = calendar.month_name[month].upper()
     header_text = f"{month_name} {year}"
 
-    # Draw outer border - top
-    draw.line([(x, y), (x + width, y)], fill=fill, width=border_thickness)
-    # Left side
-    draw.line([(x, y), (x, y + height)], fill=fill, width=border_thickness)
-    # Right side
-    draw.line([(x + width, y), (x + width, y + height)], fill=fill, width=border_thickness)
-    # Bottom
-    draw.line([(x, y + height), (x + width, y + height)], fill=fill, width=border_thickness)
+    # Draw outer border using double-line box-drawing characters
+    # Calculate character dimensions for box drawing
+    char_bbox = draw.textbbox((0, 0), D_HORIZONTAL, font=font_header)
+    char_w = char_bbox[2] - char_bbox[0]
+    char_h = char_bbox[3] - char_bbox[1]
 
-    # Draw header separator line
+    # Number of horizontal chars needed
+    h_count = (width - 2 * char_w) // char_w
+
+    # Top border with double lines
+    top_line = D_TOP_LEFT + (D_HORIZONTAL * h_count) + D_TOP_RIGHT
+    draw.text((x, y), top_line, font=font_header, fill=fill)
+
+    # Left side with double lines (draw vertically)
+    for i in range(1, 6):  # Draw several vertical segments
+        vert_y = y + char_h + (i * char_h * 2)
+        if vert_y < y + height - char_h:
+            draw.text((x, vert_y), D_VERTICAL, font=font_header, fill=fill)
+
+    # Right side with double lines
+    right_x = x + width - char_w
+    for i in range(1, 6):
+        vert_y = y + char_h + (i * char_h * 2)
+        if vert_y < y + height - char_h:
+            draw.text((right_x, vert_y), D_VERTICAL, font=font_header, fill=fill)
+
+    # Bottom border with double lines
+    bottom_line = D_BOTTOM_LEFT + (D_HORIZONTAL * h_count) + D_BOTTOM_RIGHT
+    draw.text((x, y + height - char_h), bottom_line, font=font_header, fill=fill)
+
+    # Draw header separator line (thicker)
     header_sep_y = y + header_height
     draw.line([(x, header_sep_y), (x + width, header_sep_y)], fill=fill, width=border_thickness)
 
-    # Draw month/year header centered
-    header_bbox = draw.textbbox((0, 0), header_text, font=font_header)
+    # Draw styled "CALENDAR" header with decorative elements
+    calendar_label = f"{D_T_RIGHT} {month_name} {year} {D_T_LEFT}"
+    header_bbox = draw.textbbox((0, 0), calendar_label, font=font_header)
     header_text_width = header_bbox[2] - header_bbox[0]
     header_text_height = header_bbox[3] - header_bbox[1]
     header_x = x + (width - header_text_width) // 2
-    header_y = y + (header_height - header_text_height) // 2
-    draw.text((header_x, header_y), header_text, font=font_header, fill=fill)
+    header_y = y + (header_height - header_text_height) // 2 + char_h // 2
+    draw.text((header_x, header_y), calendar_label, font=font_header, fill=fill)
 
     # Draw day-of-week headers
     for i, dow in enumerate(dow_labels):

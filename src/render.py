@@ -51,6 +51,40 @@ WHITE = 255
 class DashboardRenderer:
     """Renders the complete dashboard image with quadrant layout."""
 
+    def _draw_ascii_border(self, draw: ImageDraw.Draw, x: int, y: int, width: int, height: int, title: str = None) -> None:
+        """Draw an ASCII-style box border with optional title."""
+        font = self.fonts.get("mono_16")
+
+        # Box drawing characters
+        TL, TR, BL, BR = '\u250c', '\u2510', '\u2514', '\u2518'
+        H, V = '\u2500', '\u2502'
+        LT, RT = '\u251c', '\u2524'
+
+        # Calculate character dimensions
+        char_bbox = draw.textbbox((0, 0), H, font=font)
+        char_w = char_bbox[2] - char_bbox[0]
+        char_h = char_bbox[3] - char_bbox[1]
+
+        # Number of horizontal chars needed
+        h_count = (width - 2 * char_w) // char_w
+
+        # Top border
+        top_line = TL + (H * h_count) + TR
+        draw.text((x, y), top_line, font=font, fill=DARK_GRAY)
+
+        # If title, draw title bar
+        if title:
+            title_y = y + char_h + 5
+            title_str = f"{LT} {title} {RT}"
+            # Center the title
+            title_x = x + (width - len(title_str) * char_w) // 2
+            draw.text((title_x, title_y), title_str, font=font, fill=BLACK)
+
+        # Bottom border
+        bottom_y = y + height - char_h
+        bottom_line = BL + (H * h_count) + BR
+        draw.text((x, bottom_y), bottom_line, font=font, fill=DARK_GRAY)
+
     def __init__(self, config_path: str = "config.yml"):
         """Initialize renderer with configuration."""
         self.config = self._load_config(config_path)
@@ -294,6 +328,9 @@ class DashboardRenderer:
         high = weather.get("high", current["temperature"])
         low = weather.get("low", current["temperature"])
 
+        # Get city from config
+        city = self.config.get("weather", {}).get("city", "")
+
         # Call weather_render module
         render_weather_zone(
             draw=draw,
@@ -306,7 +343,8 @@ class DashboardRenderer:
             condition=current["description"],
             high=high,
             low=low,
-            fonts=weather_fonts
+            fonts=weather_fonts,
+            city=city
         )
 
     def render_calendar_zone(self, draw: ImageDraw.Draw, image: Image.Image) -> None:
@@ -359,22 +397,19 @@ class DashboardRenderer:
         now = self._get_current_time()
 
         # Zone coordinates
+        zone_x = MARGIN
         zone_y = MARGIN + TIME_ZONE_HEIGHT + MIDDLE_ZONE_HEIGHT
+        zone_width = WIDTH - (2 * MARGIN)
         zone_height = REMINDERS_ZONE_HEIGHT
 
         # Column specifications
-        left_col_x = MARGIN
+        left_col_x = MARGIN + 20  # Offset from border
         right_col_x = MARGIN + 588  # ~618 from left edge
         col_width = 558
         max_per_column = 3
 
-        # Draw zone separator line at top
-        sep_y = zone_y
-        draw.line(
-            [(MARGIN, sep_y), (WIDTH - MARGIN, sep_y)],
-            fill=LIGHT_GRAY,
-            width=1
-        )
+        # Draw ASCII border around reminders zone with title
+        self._draw_ascii_border(draw, zone_x, zone_y, zone_width, zone_height, title="REMINDERS")
 
         # Font for reminders
         reminder_font = self.fonts.get("mono_28")
@@ -384,8 +419,8 @@ class DashboardRenderer:
         left_reminders = reminders[:max_per_column]
         right_reminders = reminders[max_per_column:max_per_column * 2]
 
-        # Starting y position for items
-        items_y = zone_y + 30
+        # Starting y position for items (offset for border and title)
+        items_y = zone_y + 45
 
         # Render left column
         for i, reminder in enumerate(left_reminders):
@@ -508,6 +543,15 @@ class DashboardRenderer:
 
         print("  Rendering reminders zone...")
         self.render_reminders_zone(draw, reminders)
+
+        # Draw exit indicator
+        exit_text = "[ TAP HERE TO EXIT ]"
+        exit_font = self.fonts.get("mono_tiny")
+        exit_bbox = draw.textbbox((0, 0), exit_text, font=exit_font)
+        exit_width = exit_bbox[2] - exit_bbox[0]
+        exit_x = WIDTH - exit_width - 20
+        exit_y = HEIGHT - 30
+        draw.text((exit_x, exit_y), exit_text, font=exit_font, fill=MEDIUM_GRAY)
 
         # Ensure output directory exists
         output_dir = os.path.dirname(output_path)

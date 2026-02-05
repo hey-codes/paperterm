@@ -221,11 +221,13 @@ def render_weather_zone(draw: ImageDraw, x: int, y: int,
                         width: int, height: int,
                         temperature: int, unit: str,
                         condition: str, high: int, low: int,
-                        fonts: dict) -> None:
+                        fonts: dict, city: Optional[str] = None) -> None:
     """
-    Render weather display with ASCII icon.
+    Render weather display with ASCII icon and box border.
 
     Renders a vertically centered weather display containing:
+    - ASCII-style box border
+    - City name header (if provided)
     - ASCII art weather icon
     - Large temperature display
     - Weather condition description
@@ -247,6 +249,7 @@ def render_weather_zone(draw: ImageDraw, x: int, y: int,
             - 'medium': For condition text (36px)
             - 'small': For high/low (24px)
             - 'mono': For ASCII art icon
+        city: Optional city name to display at top
     """
     # Get the icon for this condition
     icon_key = get_weather_icon(condition)
@@ -258,7 +261,28 @@ def render_weather_zone(draw: ImageDraw, x: int, y: int,
     font_small = fonts.get('small')
     font_mono = fonts.get('mono')
 
-    # Calculate total content height to center vertically
+    # Box drawing characters
+    BOX_TOP_LEFT = "\u250c"      # ┌
+    BOX_TOP_RIGHT = "\u2510"     # ┐
+    BOX_BOTTOM_LEFT = "\u2514"   # └
+    BOX_BOTTOM_RIGHT = "\u2518"  # ┘
+    BOX_HORIZONTAL = "\u2500"    # ─
+    BOX_VERTICAL = "\u2502"      # │
+    BOX_T_LEFT = "\u251c"        # ├
+    BOX_T_RIGHT = "\u2524"       # ┤
+
+    # Box dimensions and padding
+    box_padding = 20
+    box_x = x + box_padding
+    box_width = width - (2 * box_padding)
+
+    # Calculate content heights
+    # City header height
+    city_height = 0
+    if city and font_medium:
+        city_bbox = draw.textbbox((0, 0), city.upper(), font=font_medium)
+        city_height = city_bbox[3] - city_bbox[1] + 20  # Extra padding for separator
+
     # Icon height
     icon_lines = icon_text.split('\n')
     if font_mono:
@@ -292,52 +316,122 @@ def render_weather_zone(draw: ImageDraw, x: int, y: int,
 
     # Spacing between elements
     spacing = 20
+    box_inner_padding = 15
 
-    # Total content height
-    total_height = icon_height + spacing + temp_height + spacing + cond_height + spacing + hl_height
+    # Total content height (inside box)
+    content_height = city_height + icon_height + spacing + temp_height + spacing + cond_height + spacing + hl_height + (2 * box_inner_padding)
 
-    # Calculate starting Y to center content
-    start_y = y + (height - total_height) // 2
-    current_y = start_y
+    # Calculate box Y position to center in zone
+    box_y = y + (height - content_height) // 2
+    box_height = content_height
 
-    # Draw ASCII icon (centered)
+    # Draw box border using mono font
     if font_mono:
-        current_y = _draw_multiline_centered(draw, icon_text, x, width,
+        # Calculate how many horizontal chars fit
+        char_bbox = draw.textbbox((0, 0), BOX_HORIZONTAL, font=font_mono)
+        char_width = char_bbox[2] - char_bbox[0]
+        num_chars = (box_width - 2 * char_width) // char_width
+
+        # Top border
+        top_border = BOX_TOP_LEFT + (BOX_HORIZONTAL * num_chars) + BOX_TOP_RIGHT
+        draw.text((box_x, box_y), top_border, font=font_mono, fill="black")
+
+        # Get border line height
+        border_height = char_bbox[3] - char_bbox[1]
+        current_y = box_y + border_height + 5
+
+        # Draw city name if provided
+        if city:
+            # Draw left vertical bar
+            draw.text((box_x, current_y), BOX_VERTICAL, font=font_mono, fill="black")
+            # Draw right vertical bar
+            draw.text((box_x + box_width - char_width, current_y), BOX_VERTICAL, font=font_mono, fill="black")
+
+            # Draw centered city name
+            city_text = city.upper()
+            if font_medium:
+                _center_text(draw, city_text, box_x + char_width, box_width - 2 * char_width,
+                            current_y, font_medium, fill="black")
+                city_bbox = draw.textbbox((0, 0), city_text, font=font_medium)
+                current_y += city_bbox[3] - city_bbox[1] + 10
+
+            # Draw separator line
+            separator = BOX_T_LEFT + (BOX_HORIZONTAL * num_chars) + BOX_T_RIGHT
+            draw.text((box_x, current_y), separator, font=font_mono, fill="black")
+            current_y += border_height + 10
+
+        # Content area - draw vertical bars on sides for each content line
+        content_start_y = current_y
+        content_end_y = box_y + box_height - border_height - 5
+
+        # Draw left and right vertical bars for content area
+        # We'll draw them at intervals
+        bar_y = content_start_y
+        while bar_y < content_end_y:
+            draw.text((box_x, bar_y), BOX_VERTICAL, font=font_mono, fill="black")
+            draw.text((box_x + box_width - char_width, bar_y), BOX_VERTICAL, font=font_mono, fill="black")
+            bar_y += border_height + 2
+
+        # Inner content area boundaries
+        inner_x = box_x + char_width + 5
+        inner_width = box_width - 2 * char_width - 10
+
+        current_y = content_start_y + box_inner_padding
+
+        # Draw ASCII icon (centered in inner area)
+        current_y = _draw_multiline_centered(draw, icon_text, inner_x, inner_width,
                                              current_y, font_mono, fill="black")
+        current_y += spacing
+
+        # Draw temperature (large, centered)
+        if font_large:
+            current_y = _center_text(draw, temp_text, inner_x, inner_width, current_y,
+                                     font_large, fill="black")
+        else:
+            draw.text((inner_x + inner_width // 2 - 50, current_y), temp_text, fill="black")
+            current_y += temp_height
+        current_y += spacing
+
+        # Draw condition description (medium, centered)
+        if font_medium:
+            current_y = _center_text(draw, condition, inner_x, inner_width, current_y,
+                                     font_medium, fill="black")
+        else:
+            draw.text((inner_x + inner_width // 2 - 60, current_y), condition, fill="black")
+            current_y += cond_height
+        current_y += spacing
+
+        # Draw high/low (small, gray, centered)
+        if font_small:
+            _center_text(draw, highlow_text, inner_x, inner_width, current_y,
+                         font_small, fill="gray")
+        else:
+            draw.text((inner_x + inner_width // 2 - 50, current_y), highlow_text, fill="gray")
+
+        # Bottom border
+        bottom_border = BOX_BOTTOM_LEFT + (BOX_HORIZONTAL * num_chars) + BOX_BOTTOM_RIGHT
+        draw.text((box_x, box_y + box_height - border_height), bottom_border, font=font_mono, fill="black")
+
     else:
-        # Fallback without mono font
+        # Fallback without mono font - just draw content without border
+        current_y = y + (height - content_height) // 2
+
+        # Draw ASCII icon
         for line in icon_lines:
             if line:
                 draw.text((x + 100, current_y), line, fill="black")
                 current_y += 16
+        current_y += spacing
 
-    current_y += spacing
-
-    # Draw temperature (large, centered)
-    if font_large:
-        current_y = _center_text(draw, temp_text, x, width, current_y,
-                                 font_large, fill="black")
-    else:
+        # Draw temperature
         draw.text((x + width // 2 - 50, current_y), temp_text, fill="black")
-        current_y += temp_height
+        current_y += temp_height + spacing
 
-    current_y += spacing
-
-    # Draw condition description (medium, centered)
-    if font_medium:
-        current_y = _center_text(draw, condition, x, width, current_y,
-                                 font_medium, fill="black")
-    else:
+        # Draw condition
         draw.text((x + width // 2 - 60, current_y), condition, fill="black")
-        current_y += cond_height
+        current_y += cond_height + spacing
 
-    current_y += spacing
-
-    # Draw high/low (small, gray, centered)
-    if font_small:
-        _center_text(draw, highlow_text, x, width, current_y,
-                     font_small, fill="gray")
-    else:
+        # Draw high/low
         draw.text((x + width // 2 - 50, current_y), highlow_text, fill="gray")
 
 
