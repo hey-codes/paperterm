@@ -1,0 +1,11 @@
+# Kindle Dashboard Reminders
+# Edit this file to update your to-do list
+# Lines starting with # are comments
+# Lines starting with [x] are completed (won't show)
+# Lines starting with [!] are high priority
+
+[!] Test KOReader on Kindle
+[ ] Customize dashboard layout
+[ ] Add more artwork to rotation
+[ ] Set up Google Tasks sync
+[ ] Explore SSH access to Kindle

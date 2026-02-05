@@ -1,0 +1,66 @@
+# Kindle Dashboard Configuration
+# Edit this file to customize your dashboard
+
+# Display settings (Kindle Paperwhite 11th Gen)
+display:
+  width: 1236
+  height: 1648
+  dpi: 300
+
+# Weather settings
+weather:
+  # Your location (latitude, longitude)
+  # Find yours at: https://www.latlong.net/
+  latitude: 41.8781
+  longitude: -87.6298
+  # Temperature unit: "fahrenheit" or "celsius"
+  unit: "fahrenheit"
+  # Show forecast for next N hours
+  forecast_hours: 12
+
+# Dashboard layout mode
+# Options: "weather_focus", "artwork_focus", "balanced", "minimal"
+layout: "balanced"
+
+# Artwork settings
+artwork:
+  # Enable rotating artwork
+  enabled: true
+  # How often to change artwork (in refresh cycles)
+  # e.g., 6 means change every 6 refreshes (if refresh is 15 min, that's 90 min)
+  rotation_interval: 6
+  # Artwork categories to include (from artwork/ subfolders)
+  categories:
+    - nature
+    - typography
+    - illustrations
+    - abstract
+
+# Reminders/To-do settings
+reminders:
+  # Enable reminders section
+  enabled: true
+  # Max items to show
+  max_items: 5
+  # Source file
+  file: "reminders.txt"
+
+# Google Tasks integration (optional, for future)
+google_tasks:
+  enabled: false
+  # credentials_file: "credentials.json"
+  # task_list_id: "your-list-id"
+
+# Refresh settings (controlled by Kindle, but noted here)
+refresh:
+  # Recommended: 15 minutes (900 seconds)
+  interval_seconds: 900
+
+# Time/date format
+time:
+  # 12-hour or 24-hour format
+  format_24h: false
+  # Date format: "short" (Feb 4), "long" (February 4, 2026), "iso" (2026-02-04)
+  date_format: "short"
+  # Timezone (IANA format)
+  timezone: "America/Chicago"  # Chicago, IL
