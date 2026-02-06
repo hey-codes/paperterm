@@ -12,50 +12,59 @@ from PIL import Image, ImageDraw, ImageFont
 from typing import Optional
 
 
-# ASCII art weather icons
+# ASCII art weather icons (larger versions)
 WEATHER_ICONS = {
     "clear": '''
-   \\   /
-    .-.
- ― (   ) ―
-    `-'
-   /   \\
+          \\   |   /
+       '-.  _  .-'
+      -- (     ) --
+       .-'  -  '-.
+          /   |   \\
 ''',
     "partly_cloudy": '''
-   \\  /
- _ /"".-.
-   \\_(   ).
-   /(___(__)
+        \\   |   /
+     '-.   _  .-'
+       /"".-.  --
+    .-~       ~ -.
+   (               )
+    '- . _____ . -'
 ''',
     "cloudy": '''
-     .--.
-  .-(    ).
- (___.__)__)
+          .-~~~-.
+      .- ~       ~ -.
+     (               )
+      '- . _____ . -'
 ''',
     "rain": '''
-     .-.
-    (   ).
-   (___(__)
-    ʻ ʻ ʻ ʻ
-   ʻ ʻ ʻ ʻ
+          .-~~~-.
+      .- ~       ~ -.
+     (               )
+      '- . _____ . -'
+        /  /  /  /  /
+       /  /  /  /  /
 ''',
     "snow": '''
-     .-.
-    (   ).
-   (___(__)
-    * * * *
-   * * * *
+          .-~~~-.
+      .- ~       ~ -.
+     (               )
+      '- . _____ . -'
+        *  *  *  *  *
+       *  *  *  *  *
 ''',
     "thunderstorm": '''
-     .-.
-    (   ).
-   (___(__)
-   ⚡ʻ ⚡ʻ
+          .-~~~-.
+      .- ~       ~ -.
+     (               )
+      '- . _____ . -'
+       /  /  / \\  \\
+         _/     |
 ''',
     "fog": '''
- _ - _ - _ -
-  _ - _ - _
- _ - _ - _ -
+     _ - _ - _ - _ -
+      _ - _ - _ - _
+     _ - _ - _ - _ -
+      _ - _ - _ - _
+     _ - _ - _ - _ -
 '''
 }
 
@@ -221,7 +230,11 @@ def render_weather_zone(draw: ImageDraw, x: int, y: int,
                         width: int, height: int,
                         temperature: int, unit: str,
                         condition: str, high: int, low: int,
-                        fonts: dict, city: Optional[str] = None) -> None:
+                        fonts: dict, city: Optional[str] = None,
+                        sunrise: Optional[str] = None,
+                        sunset: Optional[str] = None,
+                        wind_speed: Optional[int] = None,
+                        precip_chance: Optional[int] = None) -> None:
     """
     Render weather display with ASCII icon and box border.
 
@@ -232,6 +245,8 @@ def render_weather_zone(draw: ImageDraw, x: int, y: int,
     - Large temperature display
     - Weather condition description
     - High/Low temperature line
+    - Sunrise/Sunset times
+    - Wind speed and precipitation chance
 
     Args:
         draw: PIL ImageDraw object
@@ -250,6 +265,10 @@ def render_weather_zone(draw: ImageDraw, x: int, y: int,
             - 'small': For high/low (24px)
             - 'mono': For ASCII art icon
         city: Optional city name to display at top
+        sunrise: Optional sunrise time string (e.g., "6:45 AM")
+        sunset: Optional sunset time string (e.g., "5:30 PM")
+        wind_speed: Optional wind speed in mph
+        precip_chance: Optional precipitation probability percentage
     """
     # Get the icon for this condition
     icon_key = get_weather_icon(condition)
@@ -314,12 +333,32 @@ def render_weather_zone(draw: ImageDraw, x: int, y: int,
     else:
         hl_height = 24
 
+    # Additional weather details height
+    details_height = 0
+    if font_small:
+        # Each detail line (sunrise/sunset, wind/precip)
+        sample_bbox = draw.textbbox((0, 0), "Sample", font=font_small)
+        line_height = sample_bbox[3] - sample_bbox[1]
+        # We have up to 4 lines of details: sunrise, sunset, wind, precip
+        num_detail_lines = 0
+        if sunrise:
+            num_detail_lines += 1
+        if sunset:
+            num_detail_lines += 1
+        if wind_speed is not None:
+            num_detail_lines += 1
+        if precip_chance is not None:
+            num_detail_lines += 1
+        details_height = num_detail_lines * (line_height + 8)  # 8px line spacing
+    else:
+        details_height = 100  # Estimate
+
     # Spacing between elements
     spacing = 20
     box_inner_padding = 15
 
     # Total content height (inside box)
-    content_height = city_height + icon_height + spacing + temp_height + spacing + cond_height + spacing + hl_height + (2 * box_inner_padding)
+    content_height = city_height + icon_height + spacing + temp_height + spacing + cond_height + spacing + hl_height + spacing + details_height + (2 * box_inner_padding)
 
     # Calculate box Y position to center in zone
     box_y = y + (height - content_height) // 2
@@ -403,10 +442,42 @@ def render_weather_zone(draw: ImageDraw, x: int, y: int,
 
         # Draw high/low (small, gray, centered)
         if font_small:
-            _center_text(draw, highlow_text, inner_x, inner_width, current_y,
+            current_y = _center_text(draw, highlow_text, inner_x, inner_width, current_y,
                          font_small, fill="gray")
         else:
             draw.text((inner_x + inner_width // 2 - 50, current_y), highlow_text, fill="gray")
+            current_y += hl_height
+        current_y += spacing
+
+        # Draw additional weather details
+        detail_line_spacing = 8
+        if font_small:
+            # Sunrise
+            if sunrise:
+                sunrise_text = f"Sunrise: {sunrise}"
+                current_y = _center_text(draw, sunrise_text, inner_x, inner_width, current_y,
+                                         font_small, fill="gray")
+                current_y += detail_line_spacing
+
+            # Sunset
+            if sunset:
+                sunset_text = f"Sunset: {sunset}"
+                current_y = _center_text(draw, sunset_text, inner_x, inner_width, current_y,
+                                         font_small, fill="gray")
+                current_y += detail_line_spacing
+
+            # Wind speed
+            if wind_speed is not None:
+                wind_text = f"Wind: {wind_speed} mph"
+                current_y = _center_text(draw, wind_text, inner_x, inner_width, current_y,
+                                         font_small, fill="gray")
+                current_y += detail_line_spacing
+
+            # Precipitation chance
+            if precip_chance is not None:
+                precip_text = f"Precip: {precip_chance}%"
+                current_y = _center_text(draw, precip_text, inner_x, inner_width, current_y,
+                                         font_small, fill="gray")
 
         # Bottom border
         bottom_border = BOX_BOTTOM_LEFT + (BOX_HORIZONTAL * num_chars) + BOX_BOTTOM_RIGHT
@@ -433,6 +504,20 @@ def render_weather_zone(draw: ImageDraw, x: int, y: int,
 
         # Draw high/low
         draw.text((x + width // 2 - 50, current_y), highlow_text, fill="gray")
+        current_y += hl_height + spacing
+
+        # Draw additional weather details
+        if sunrise:
+            draw.text((x + width // 2 - 60, current_y), f"Sunrise: {sunrise}", fill="gray")
+            current_y += 24
+        if sunset:
+            draw.text((x + width // 2 - 60, current_y), f"Sunset: {sunset}", fill="gray")
+            current_y += 24
+        if wind_speed is not None:
+            draw.text((x + width // 2 - 60, current_y), f"Wind: {wind_speed} mph", fill="gray")
+            current_y += 24
+        if precip_chance is not None:
+            draw.text((x + width // 2 - 60, current_y), f"Precip: {precip_chance}%", fill="gray")
 
 
 if __name__ == "__main__":

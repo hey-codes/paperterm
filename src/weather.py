@@ -64,6 +64,7 @@ def fetch_weather(
         f"latitude={latitude}&longitude={longitude}"
         f"&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
         f"&hourly=temperature_2m,weather_code"
+        f"&daily=sunrise,sunset,precipitation_probability_max,windspeed_10m_max"
         f"&temperature_unit={temp_unit}"
         f"&wind_speed_unit=mph"
         f"&forecast_hours={forecast_hours}"
@@ -121,6 +122,37 @@ def fetch_weather(
     if temps:
         result["high"] = round(max(temps[:forecast_hours]))
         result["low"] = round(min(temps[:forecast_hours]))
+
+    # Parse daily data (sunrise, sunset, wind, precipitation)
+    daily = data.get("daily", {})
+    if daily:
+        # Get today's values (first element in arrays)
+        sunrise_list = daily.get("sunrise", [])
+        sunset_list = daily.get("sunset", [])
+        precip_list = daily.get("precipitation_probability_max", [])
+        wind_list = daily.get("windspeed_10m_max", [])
+
+        if sunrise_list:
+            # Parse sunrise time (ISO format: "2024-01-15T06:45")
+            try:
+                sunrise_dt = datetime.fromisoformat(sunrise_list[0])
+                result["sunrise"] = sunrise_dt.strftime("%-I:%M %p")
+            except (ValueError, IndexError):
+                result["sunrise"] = None
+
+        if sunset_list:
+            # Parse sunset time
+            try:
+                sunset_dt = datetime.fromisoformat(sunset_list[0])
+                result["sunset"] = sunset_dt.strftime("%-I:%M %p")
+            except (ValueError, IndexError):
+                result["sunset"] = None
+
+        if precip_list:
+            result["precip_chance"] = precip_list[0] if precip_list[0] is not None else 0
+
+        if wind_list:
+            result["wind_speed_max"] = round(wind_list[0]) if wind_list[0] is not None else 0
 
     return result
 

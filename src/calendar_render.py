@@ -127,35 +127,41 @@ def render_calendar(
     month_name = calendar.month_name[month].upper()
     header_text = f"{month_name} {year}"
 
-    # Draw outer border using double-line box-drawing characters
-    # Calculate character dimensions for box drawing
+    # Draw outer border using PIL lines for reliability, then overlay corner characters
+    # Calculate character dimensions for corner characters
     char_bbox = draw.textbbox((0, 0), D_HORIZONTAL, font=font_header)
     char_w = char_bbox[2] - char_bbox[0]
     char_h = char_bbox[3] - char_bbox[1]
 
-    # Number of horizontal chars needed
-    h_count = (width - 2 * char_w) // char_w
+    # Border line thickness (double-line style = 3 pixels)
+    border_line_width = 3
 
-    # Top border with double lines
-    top_line = D_TOP_LEFT + (D_HORIZONTAL * h_count) + D_TOP_RIGHT
-    draw.text((x, y), top_line, font=font_header, fill=fill)
+    # Calculate the rectangle coordinates (inset slightly for the lines)
+    # The border should be drawn at half the line width inset to align with corners
+    border_x1 = x + char_w // 2
+    border_y1 = y + char_h // 2
+    border_x2 = x + width - char_w // 2
+    border_y2 = y + height - char_h // 2
 
-    # Left side with double lines (draw vertically)
-    for i in range(1, 6):  # Draw several vertical segments
-        vert_y = y + char_h + (i * char_h * 2)
-        if vert_y < y + height - char_h:
-            draw.text((x, vert_y), D_VERTICAL, font=font_header, fill=fill)
+    # Draw the rectangle border using lines
+    # Top line
+    draw.line([(border_x1, border_y1), (border_x2, border_y1)], fill=fill, width=border_line_width)
+    # Bottom line
+    draw.line([(border_x1, border_y2), (border_x2, border_y2)], fill=fill, width=border_line_width)
+    # Left line
+    draw.line([(border_x1, border_y1), (border_x1, border_y2)], fill=fill, width=border_line_width)
+    # Right line
+    draw.line([(border_x2, border_y1), (border_x2, border_y2)], fill=fill, width=border_line_width)
 
-    # Right side with double lines
-    right_x = x + width - char_w
-    for i in range(1, 6):
-        vert_y = y + char_h + (i * char_h * 2)
-        if vert_y < y + height - char_h:
-            draw.text((right_x, vert_y), D_VERTICAL, font=font_header, fill=fill)
-
-    # Bottom border with double lines
-    bottom_line = D_BOTTOM_LEFT + (D_HORIZONTAL * h_count) + D_BOTTOM_RIGHT
-    draw.text((x, y + height - char_h), bottom_line, font=font_header, fill=fill)
+    # Overlay corner characters for the box-drawing aesthetic
+    # Top-left corner
+    draw.text((x, y), D_TOP_LEFT, font=font_header, fill=fill)
+    # Top-right corner
+    draw.text((x + width - char_w, y), D_TOP_RIGHT, font=font_header, fill=fill)
+    # Bottom-left corner
+    draw.text((x, y + height - char_h), D_BOTTOM_LEFT, font=font_header, fill=fill)
+    # Bottom-right corner
+    draw.text((x + width - char_w, y + height - char_h), D_BOTTOM_RIGHT, font=font_header, fill=fill)
 
     # Draw header separator line (thicker)
     header_sep_y = y + header_height

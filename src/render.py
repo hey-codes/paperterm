@@ -331,6 +331,12 @@ class DashboardRenderer:
         # Get city from config
         city = self.config.get("weather", {}).get("city", "")
 
+        # Get additional weather data
+        sunrise = weather.get("sunrise")
+        sunset = weather.get("sunset")
+        wind_speed = weather.get("wind_speed_max")
+        precip_chance = weather.get("precip_chance")
+
         # Call weather_render module
         render_weather_zone(
             draw=draw,
@@ -344,7 +350,11 @@ class DashboardRenderer:
             high=high,
             low=low,
             fonts=weather_fonts,
-            city=city
+            city=city,
+            sunrise=sunrise,
+            sunset=sunset,
+            wind_speed=wind_speed,
+            precip_chance=precip_chance
         )
 
     def render_calendar_zone(self, draw: ImageDraw.Draw, image: Image.Image) -> None:

@@ -54,15 +54,17 @@ stop_framework() {
 
     # Stop the framework
     /etc/init.d/framework stop
+    sleep 1
 
-    # Kill any remaining UI processes
+    # Kill specific UI processes that might redraw the screen
     killall -9 cvm 2>/dev/null
-    killall -9 lipc-daemon 2>/dev/null
+    killall -9 mesquite 2>/dev/null
+    killall -9 lipc-wait-event 2>/dev/null
 
     # Wait for processes to die
-    sleep 3
+    sleep 2
 
-    # Clear the screen completely
+    # Clear the screen completely (only done on initial startup)
     eips -c
     eips -c
 
@@ -81,6 +83,7 @@ prevent_sleep() {
 
 # -----------------------------------------------------------------------------
 # Display the dashboard image
+# Note: Does NOT clear screen first - just overwrites directly to prevent flash
 # -----------------------------------------------------------------------------
 display_dashboard() {
     log "Displaying dashboard..."
@@ -95,7 +98,8 @@ display_dashboard() {
     log "Dashboard file size: $filesize bytes"
 
     # Display the image directly without clearing first (prevents flash)
-    # -g = grayscale image
+    # -g = grayscale image, draws directly over existing content
+    # DO NOT use -c (clear) or -f (flash/full refresh) here
     eips -g "$DASHBOARD_IMG"
 
     log "Dashboard displayed"
@@ -103,6 +107,8 @@ display_dashboard() {
 
 # -----------------------------------------------------------------------------
 # Fetch dashboard from server
+# Downloads to a temp file first, then atomically moves to final location
+# This prevents partial images from being displayed during refresh
 # -----------------------------------------------------------------------------
 fetch_dashboard() {
     log "Fetching dashboard from $DASHBOARD_URL"
@@ -110,20 +116,31 @@ fetch_dashboard() {
     # Create temp directory if needed
     mkdir -p "$TMP_DIR"
 
-    # Download with retry
+    # Download with retry - use temp file to prevent partial display
     attempts=0
     max_attempts=3
+    TEMP_IMG="${DASHBOARD_IMG}.new"
 
     while [ $attempts -lt $max_attempts ]; do
-        if curl -s -o "$DASHBOARD_IMG" --connect-timeout 10 --max-time 30 "$DASHBOARD_URL"; then
-            log "Download successful"
-            return 0
+        if curl -s -o "$TEMP_IMG" --connect-timeout 10 --max-time 30 "$DASHBOARD_URL"; then
+            # Verify the download succeeded and file exists
+            if [ -f "$TEMP_IMG" ] && [ -s "$TEMP_IMG" ]; then
+                # Atomically move temp file to final location
+                mv "$TEMP_IMG" "$DASHBOARD_IMG"
+                log "Download successful"
+                return 0
+            else
+                log "Download produced empty or missing file"
+                rm -f "$TEMP_IMG" 2>/dev/null
+            fi
         fi
         attempts=$((attempts + 1))
         log "Download attempt $attempts failed, retrying..."
         sleep 2
     done
 
+    # Clean up any failed temp file
+    rm -f "$TEMP_IMG" 2>/dev/null
     log "Failed to download dashboard after $max_attempts attempts"
     return 1
 }
